@@ -1,9 +1,26 @@
+
 export enum AppView {
+  AUTH = 'AUTH',
   ONBOARDING = 'ONBOARDING',
   ROADMAP = 'ROADMAP',
   STUDY = 'STUDY',
   QUIZ = 'QUIZ',
-  DASHBOARD = 'DASHBOARD'
+  DASHBOARD = 'DASHBOARD',
+  CERTIFICATE = 'CERTIFICATE'
+}
+
+export enum Language {
+  PT = 'pt-BR',
+  EN = 'en-US',
+  ES = 'es-ES',
+  ZH = 'zh-CN'
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
 }
 
 export interface QuizQuestion {
@@ -13,10 +30,16 @@ export interface QuizQuestion {
   explanation: string;
 }
 
+export interface LabContent {
+  svgCode: string;
+  experimentSteps: string;
+}
+
 export interface MultimediaContent {
-  markdownContent: string; // The main text
-  youtubeQueries: string[]; // Keywords to search for videos
-  infographicDescription: string; // Text description of a visual aid
+  markdownContent: string;
+  youtubeQueries: string[];
+  infographicDescription: string;
+  lab?: LabContent;
 }
 
 export interface Module {
@@ -27,7 +50,7 @@ export interface Module {
   isCompleted: boolean;
   content?: MultimediaContent; 
   quiz?: QuizQuestion[];
-  quizScore?: number; // percentage 0-100
+  quizScore?: number;
 }
 
 export interface StudyPlan {
@@ -36,6 +59,8 @@ export interface StudyPlan {
   totalDurationPrediction: string;
   modules: Module[];
   startDate: string;
+  language: Language;
+  totalSecondsStudied: number; // Novo campo para tempo real
 }
 
 export interface UserPreferences {
@@ -43,12 +68,15 @@ export interface UserPreferences {
   weeklyGoalHours: number;
   streakDays: number;
   lastStudyDate: string | null;
+  language: Language;
 }
 
 export enum LoadingState {
   IDLE = 'IDLE',
+  AUTH = 'AUTH',
   GENERATING_PLAN = 'GENERATING_PLAN',
   GENERATING_CONTENT = 'GENERATING_CONTENT',
   GENERATING_QUIZ = 'GENERATING_QUIZ',
+  GENERATING_LAB = 'GENERATING_LAB',
   ERROR = 'ERROR'
 }

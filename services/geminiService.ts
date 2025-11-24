@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { StudyPlan, Module, QuizQuestion, MultimediaContent } from "../types";
+import { StudyPlan, Module, QuizQuestion, MultimediaContent, Language, LabContent } from "../types";
 
 // Helper to get client
 const getAiClient = () => {
@@ -8,21 +9,30 @@ const getAiClient = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-export const generateStudyPlan = async (subject: string, timeAvailable: string): Promise<StudyPlan> => {
+const getLanguageInstruction = (lang: Language) => {
+  switch (lang) {
+    case Language.EN: return "Output strictly in English.";
+    case Language.ES: return "Output strictly in Spanish.";
+    case Language.ZH: return "Output strictly in Simplified Chinese (Mandarin).";
+    default: return "Output strictly in Portuguese.";
+  }
+};
+
+export const generateStudyPlan = async (subject: string, timeAvailable: string, language: Language): Promise<StudyPlan> => {
   const ai = getAiClient();
   
   const schema: Schema = {
     type: Type.OBJECT,
     properties: {
-      totalDurationPrediction: { type: Type.STRING, description: "Estimated time to complete the whole course (e.g. '3 semanas', '2 meses')" },
+      totalDurationPrediction: { type: Type.STRING, description: "Estimated time to complete (e.g. '3 weeks', '2 months')" },
       modules: {
         type: Type.ARRAY,
         items: {
           type: Type.OBJECT,
           properties: {
             title: { type: Type.STRING },
-            description: { type: Type.STRING, description: "Short summary of what will be learned" },
-            estimatedHours: { type: Type.NUMBER, description: "Hours needed for this module" }
+            description: { type: Type.STRING, description: "Short summary" },
+            estimatedHours: { type: Type.NUMBER }
           },
           required: ["title", "description", "estimatedHours"]
         }
@@ -32,12 +42,9 @@ export const generateStudyPlan = async (subject: string, timeAvailable: string):
   };
 
   const prompt = `
-    Atue como um professor especialista e mentor de estudos.
-    Crie um plano de estudos estruturado para aprender: "${subject}".
-    O aluno tem disponibilidade de: "${timeAvailable}" por dia.
-    
-    O plano deve ser dividido em módulos lógicos e progressivos.
-    Estime a duração total do curso.
+    Act as an expert teacher. Create a structured study plan to learn: "${subject}".
+    Availability: "${timeAvailable}" per day.
+    Split into logical modules.
   `;
 
   try {
@@ -47,13 +54,12 @@ export const generateStudyPlan = async (subject: string, timeAvailable: string):
       config: {
         responseMimeType: "application/json",
         responseSchema: schema,
-        systemInstruction: "You are a helpful educational planner. Output strictly in Portuguese."
+        systemInstruction: getLanguageInstruction(language)
       }
     });
 
     const data = JSON.parse(response.text || "{}");
     
-    // Add client-side IDs and default states
     const modules: Module[] = (data.modules || []).map((m: any, index: number) => ({
       ...m,
       id: `mod-${index}-${Date.now()}`,
@@ -63,39 +69,40 @@ export const generateStudyPlan = async (subject: string, timeAvailable: string):
     return {
       subject,
       dailyTime: timeAvailable,
-      totalDurationPrediction: data.totalDurationPrediction || "Duração indefinida",
+      totalDurationPrediction: data.totalDurationPrediction || "...",
       modules,
-      startDate: new Date().toISOString()
+      startDate: new Date().toISOString(),
+      language,
+      totalSecondsStudied: 0
     };
   } catch (error) {
     console.error("Error generating plan:", error);
-    throw new Error("Falha ao criar o plano de estudos. Tente novamente.");
+    throw new Error("Failed to generate plan.");
   }
 };
 
-export const generateModuleContent = async (subject: string, moduleTitle: string): Promise<MultimediaContent> => {
+export const generateModuleContent = async (subject: string, moduleTitle: string, language: Language): Promise<MultimediaContent> => {
   const ai = getAiClient();
   
   const schema: Schema = {
     type: Type.OBJECT,
     properties: {
-      markdownContent: { type: Type.STRING, description: "The main educational text in Markdown format." },
+      markdownContent: { type: Type.STRING, description: "Educational text in Markdown." },
       youtubeQueries: { 
         type: Type.ARRAY, 
         items: { type: Type.STRING },
-        description: "List of 3 specific search queries to find good video tutorials on YouTube for this topic." 
+        description: "3 search queries for YouTube." 
       },
-      infographicDescription: { type: Type.STRING, description: "A detailed textual description of a visual infographic or diagram that would explain the core concept." }
+      infographicDescription: { type: Type.STRING, description: "Visual description of a diagram." }
     },
     required: ["markdownContent", "youtubeQueries", "infographicDescription"]
   };
 
   const prompt = `
-    Crie um material didático completo para o módulo: "${moduleTitle}" do curso de "${subject}".
-    
-    1. markdownContent: Explicação detalhada, introdução, conceitos, exemplos e resumo. Use formatação rica (negrito, listas, títulos).
-    2. youtubeQueries: Sugira 3 termos de busca exatos para encontrar vídeos bons sobre isso.
-    3. infographicDescription: Descreva como seria um infográfico ideal para explicar este tópico visualmente.
+    Create educational material for module: "${moduleTitle}" of course "${subject}".
+    1. markdownContent: Detailed explanation, rich formatting.
+    2. youtubeQueries: 3 specific search terms.
+    3. infographicDescription: Describe a visual infographic.
   `;
 
   try {
@@ -104,23 +111,60 @@ export const generateModuleContent = async (subject: string, moduleTitle: string
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: schema
+        responseSchema: schema,
+        systemInstruction: getLanguageInstruction(language)
       }
     });
 
     const data = JSON.parse(response.text || "{}");
     return {
-      markdownContent: data.markdownContent || "Conteúdo indisponível.",
+      markdownContent: data.markdownContent || "Content unavailable.",
       youtubeQueries: data.youtubeQueries || [],
-      infographicDescription: data.infographicDescription || "Sem descrição visual."
+      infographicDescription: data.infographicDescription || "No visual description."
     };
   } catch (error) {
     console.error("Error generating content:", error);
-    throw new Error("Erro ao carregar o conteúdo.");
+    throw new Error("Error loading content.");
   }
 };
 
-export const generateQuiz = async (subject: string, moduleTitle: string): Promise<QuizQuestion[]> => {
+export const generateLabContent = async (subject: string, moduleTitle: string, language: Language): Promise<LabContent> => {
+  const ai = getAiClient();
+
+  const schema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      svgCode: { type: Type.STRING, description: "Raw SVG code string (no markdown ticks) to visualize the concept. Use simple shapes, paths, and clear colors. Viewbox 0 0 400 300." },
+      experimentSteps: { type: Type.STRING, description: "Explanation of what is happening in the SVG and how it applies to the concept." }
+    },
+    required: ["svgCode", "experimentSteps"]
+  };
+
+  const prompt = `
+    Create a 'Virtual Lab' visualization for: "${moduleTitle}" in "${subject}".
+    Generate a simple, illustrative SVG code that explains the concept visually (e.g., if Math, show a graph/integral area; if Biology, a cell diagram; if History, a timeline).
+    Also provide a text explaining this 'experiment'.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        systemInstruction: getLanguageInstruction(language)
+      }
+    });
+    
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+     console.error("Error generating lab:", error);
+     throw new Error("Error generating lab.");
+  }
+};
+
+export const generateQuiz = async (subject: string, moduleTitle: string, language: Language): Promise<QuizQuestion[]> => {
   const ai = getAiClient();
 
   const schema: Schema = {
@@ -131,19 +175,17 @@ export const generateQuiz = async (subject: string, moduleTitle: string): Promis
         question: { type: Type.STRING },
         options: { 
           type: Type.ARRAY, 
-          items: { type: Type.STRING },
-          description: "Array of 4 possible answers"
+          items: { type: Type.STRING }
         },
-        correctIndex: { type: Type.INTEGER, description: "Index of the correct option (0-3)" },
-        explanation: { type: Type.STRING, description: "Why this is the correct answer" }
+        correctIndex: { type: Type.INTEGER },
+        explanation: { type: Type.STRING }
       },
       required: ["question", "options", "correctIndex", "explanation"]
     }
   };
 
   const prompt = `
-    Crie um quiz de 5 perguntas de múltipla escolha para testar o conhecimento sobre: "${moduleTitle}" dentro do contexto de "${subject}".
-    As perguntas devem verificar o entendimento real do aluno.
+    Create a 5-question multiple choice quiz for: "${moduleTitle}" in "${subject}".
   `;
 
   try {
@@ -152,13 +194,14 @@ export const generateQuiz = async (subject: string, moduleTitle: string): Promis
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: schema
+        responseSchema: schema,
+        systemInstruction: getLanguageInstruction(language)
       }
     });
 
     return JSON.parse(response.text || "[]");
   } catch (error) {
     console.error("Error generating quiz:", error);
-    throw new Error("Erro ao gerar o quiz.");
+    throw new Error("Error generating quiz.");
   }
 };
